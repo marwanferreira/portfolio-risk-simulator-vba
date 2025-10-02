@@ -1,0 +1,1309 @@
+frmRunScenario :
+
+Private Sub btnRun_Click()
+    If cmbScenarios.ListIndex = -1 Then
+        MsgBox "Please select a scenario.", vbExclamation
+        Exit Sub
+    End If
+
+    Call RunStressTestByScenario(cmbScenarios.Value)
+    Unload Me
+End Sub
+
+Private Sub UserForm_Initialize()
+    Dim ws As Worksheet
+    Dim lastRow As Long
+    Dim scenarioNames As Collection
+    Dim cell As Range, val As Variant
+
+    Set ws = ThisWorkbook.Sheets("Scenarios")
+    lastRow = ws.Cells(ws.Rows.Count, 1).End(xlUp).Row
+    Set scenarioNames = New Collection
+
+    On Error Resume Next
+    For Each cell In ws.Range("A2:A" & lastRow)
+        scenarioNames.Add cell.Value, CStr(cell.Value) ' Avoid duplicates
+    Next cell
+    On Error GoTo 0
+
+    For Each val In scenarioNames
+        cmbScenarios.AddItem val
+    Next val
+End Sub
+
+
+frmAddScenario : 
+
+Private Sub cmdAddShock_Click()
+    Dim assetType As String
+    Dim shockValue As String
+    Dim displayText As String
+
+    assetType = Trim(Me.cmbAsset.Value)
+    shockValue = Trim(Me.txtShock.Value)
+
+    If assetType = "" Then
+        MsgBox "Please select an asset type.", vbExclamation
+        Exit Sub
+    End If
+
+    If shockValue = "" Or Not IsNumeric(shockValue) Then
+        MsgBox "Please enter a valid numeric shock value.", vbExclamation
+        Exit Sub
+    End If
+
+    displayText = assetType & " | " & shockValue
+    Me.lstShocks.AddItem displayText
+
+    ' Optional: Reset inputs
+    Me.cmbAsset.Value = ""
+    Me.txtShock.Value = "0"
+End Sub
+
+
+Private Sub cmdClose_Click()
+    Unload Me
+End Sub
+
+Private Sub cmdSaveScenario_Click()
+    Dim scenarioName As String
+    Dim i As Long
+    Dim nextRow As Long
+    Dim parts() As String
+    Dim ws As Worksheet
+
+    scenarioName = Trim(Me.txtName.Value)
+
+    If scenarioName = "" Then
+        MsgBox "Please enter a scenario name.", vbExclamation
+        Exit Sub
+    End If
+
+    If Me.lstShocks.ListCount = 0 Then
+        MsgBox "Please add at least one shock.", vbExclamation
+        Exit Sub
+    End If
+
+    Set ws = ThisWorkbook.Sheets("Scenarios")
+    nextRow = ws.Cells(ws.Rows.Count, 1).End(xlUp).Row + 1
+
+    For i = 0 To Me.lstShocks.ListCount - 1
+        parts = Split(Me.lstShocks.List(i), " | ")
+
+        ws.Cells(nextRow, 1).Value = scenarioName
+        ws.Cells(nextRow, 2).Value = parts(0) ' asset type
+        ws.Cells(nextRow, 3).Value = CDbl(parts(1)) ' shock
+        ws.Cells(nextRow, 4).Value = Now ' timestamp
+
+        nextRow = nextRow + 1
+    Next i
+
+    MsgBox "Scenario saved!", vbInformation
+    Unload Me
+End Sub
+
+Private Sub UserForm_Initialize()
+    Me.cmbAsset.Clear
+    Me.cmbAsset.List = Array("Equity", "Rates", "Oil", "Commodities", "Bond")
+    Me.txtShock.Value = "0"
+End Sub
+
+Sub ShowAddScenarioForm()
+    frmAddScenario.Show
+End Sub
+
+
+frmAddPortfolio :
+
+Option Explicit
+
+' Remplit la liste avec les tickers de Market_Data!A
+Private Sub UserForm_Initialize()
+    Dim ws As Worksheet, lastRow As Long, i As Long, v
+    Set ws = ThisWorkbook.Sheets("Market_Data")
+
+    cmbAsset.Clear
+    lastRow = ws.Cells(ws.Rows.Count, 1).End(xlUp).Row  ' Col A
+
+    For i = 2 To lastRow
+        On Error Resume Next
+        v = ws.Cells(i, 1).Text   ' force as displayed text
+        On Error GoTo 0
+        If Len(Trim$(v)) > 0 And v <> "Error 2015" Then
+            cmbAsset.AddItem v
+        End If
+
+    Next i
+
+    txtExposure.Value = ""
+End Sub
+
+' Ajout dans la feuille Portfolio (A:Ticker, B:Type, C:Exposure, D:Beta)
+Private Sub btnAdd_Click()
+    Dim wsP As Worksheet
+    Dim ticker As String, exposure As Double
+    Dim assetType As String, beta As Double
+    Dim nextRow As Long
+
+    Set wsP = ThisWorkbook.Sheets("Portfolio")
+
+    ticker = Trim$(cmbAsset.Value)
+    If Len(ticker) = 0 Then MsgBox "Choisis un ticker.", vbExclamation: Exit Sub
+    If Not IsNumeric(txtExposure.Value) Then MsgBox "Exposition (€) invalide.", vbExclamation: Exit Sub
+
+    exposure = CDbl(txtExposure.Value)
+    If exposure <= 0 Then MsgBox "Exposition doit être > 0.", vbExclamation: Exit Sub
+
+    ' Lit le type (E) et le beta (C) en Market_Data
+    assetType = GetAssetType(ticker)
+    beta = GetBeta(ticker)
+
+    nextRow = wsP.Cells(wsP.Rows.Count, 1).End(xlUp).Row + 1
+    wsP.Cells(nextRow, 1).Value = ticker
+    wsP.Cells(nextRow, 2).Value = assetType
+    wsP.Cells(nextRow, 3).Value = exposure
+    wsP.Cells(nextRow, 4).Value = beta
+
+    wsP.Cells(nextRow, 3).NumberFormat = "#,##0"
+    wsP.Cells(nextRow, 4).NumberFormat = "0.00"
+
+    MsgBox "Ajouté : " & ticker & " (" & assetType & _
+           ")  Expo " & Format(exposure, "#,##0 €") & _
+           "  Beta " & Format(beta, "0.00"), vbInformation
+
+    cmbAsset.ListIndex = -1
+    txtExposure.Value = ""
+End Sub
+
+Private Sub btnClose_Click()
+    Unload Me
+End Sub
+
+
+frmScenario :
+
+Private Sub btnCreateScenario_Click()
+    Dim ws As Worksheet
+    Set ws = ThisWorkbook.Sheets("Scenarios")
+    
+    Dim scenarioName As String
+    scenarioName = Trim(Me.txtScenarioName.Value)
+    
+    If scenarioName = "" Then
+        MsgBox "Please enter a scenario name.", vbExclamation
+        Exit Sub
+    End If
+
+    Dim assetTypes As Variant
+    Dim shockValues As Variant
+    Dim shockUnits As Variant
+    Dim i As Integer
+    Dim nextRow As Long
+
+    ' Asset classes and units
+    assetTypes = Array("Equity", "Oil", "Rates", "Commodities", "Bond")
+    shockValues = Array(Me.txtEquity.Value, Me.txtOil.Value, Me.txtRates.Value, Me.txtCommodities.Value, Me.txtBond.Value)
+    shockUnits = Array("%", "%", "bps", "%", "bps")
+
+    ' Append each shock to the sheet
+    For i = 0 To UBound(assetTypes)
+        If Trim(shockValues(i)) <> "" And IsNumeric(shockValues(i)) Then
+            nextRow = ws.Cells(ws.Rows.Count, 1).End(xlUp).Row + 1
+            ws.Cells(nextRow, 1).Value = scenarioName
+            ws.Cells(nextRow, 2).Value = assetTypes(i)
+            ws.Cells(nextRow, 3).Value = CDbl(shockValues(i))
+            ws.Cells(nextRow, 4).Value = shockUnits(i)
+            ws.Cells(nextRow, 5).Value = Now ' timestamp
+        End If
+    Next i
+
+    MsgBox "Scenario '" & scenarioName & "' created successfully!", vbInformation
+    Unload Me
+End Sub
+
+Private Sub cmdClose_Click()
+    Unload Me
+End Sub
+
+Private Sub UserForm_Click()
+
+End Sub
+
+
+mod_Analytics :
+
+
+Function CalculateHistoricalVaR(rng As Range, confidenceLevel As Double) As Double
+    Dim sorted() As Double
+    Dim i As Long, n As Long
+
+    n = rng.Rows.Count
+    ReDim sorted(1 To n)
+
+    ' Copy values to array
+    For i = 1 To n
+        sorted(i) = rng.Cells(i, 1).Value
+    Next i
+
+    ' Sort the array
+    Call QuickSort(sorted, 1, n)
+
+    ' Calculate index for VaR
+    Dim varIndex As Long
+    varIndex = Application.WorksheetFunction.RoundUp((1 - confidenceLevel) * n, 0)
+    CalculateHistoricalVaR = sorted(varIndex)
+End Function
+
+Sub QuickSort(arr() As Double, first As Long, last As Long)
+    Dim pivot As Double, tmp As Double
+    Dim i As Long, j As Long
+    i = first
+    j = last
+    pivot = arr((first + last) \ 2)
+    
+    Do While i <= j
+        Do While arr(i) < pivot
+            i = i + 1
+        Loop
+        Do While arr(j) > pivot
+            j = j - 1
+        Loop
+        If i <= j Then
+            tmp = arr(i)
+            arr(i) = arr(j)
+            arr(j) = tmp
+            i = i + 1
+            j = j - 1
+        End If
+    Loop
+    
+    If first < j Then QuickSort arr, first, j
+    If i < last Then QuickSort arr, i, last
+End Sub
+
+Function GetPortfolioReturns() As Variant
+    Dim wsPortfolio As Worksheet, wsMarket As Worksheet
+    Set wsPortfolio = ThisWorkbook.Sheets("Portfolio")
+    Set wsMarket = ThisWorkbook.Sheets("Market_Data")
+
+    Dim exposures As Collection
+    Set exposures = New Collection
+
+    ' Read exposures from Portfolio sheet
+    Dim lastRow As Long
+    lastRow = wsPortfolio.Cells(wsPortfolio.Rows.Count, 1).End(xlUp).Row
+    Dim i As Long
+    For i = 2 To lastRow
+        Dim assetType As String
+        assetType = wsPortfolio.Cells(i, 2).Value
+        On Error Resume Next
+        Dim found As Boolean: found = False
+        Dim e As Variant
+        
+        ' Try to update if exists
+        For Each e In exposures
+            If e(0) = assetType Then
+                e(1) = e(1) + wsPortfolio.Cells(i, 3).Value
+                found = True
+                Exit For
+            End If
+        Next e
+        
+        ' If not found, add new
+        If Not found Then
+            exposures.Add Array(assetType, wsPortfolio.Cells(i, 3).Value)
+        End If
+        On Error GoTo 0
+    Next i
+
+    ' Read factor returns from Market_Data
+    Dim numDays As Long
+    numDays = wsMarket.Cells(wsMarket.Rows.Count, 1).End(xlUp).Row - 1
+
+    Dim portReturns() As Double
+    ReDim portReturns(1 To numDays)
+
+    Dim j As Long, day As Long
+    For day = 1 To numDays
+        Dim totalReturn As Double: totalReturn = 0
+        For j = 2 To wsMarket.Cells(1, wsMarket.Columns.Count).End(xlToLeft).Column
+            Dim factorName As String
+            factorName = wsMarket.Cells(1, j).Value
+
+            For Each e In exposures
+                If e(0) = factorName Then
+                    ret = wsMarket.Cells(day + 1, j).Value
+                    totalReturn = totalReturn + e(1) * ret
+                    Exit For
+                End If
+            Next e
+
+        Next j
+        portReturns(day) = totalReturn
+    Next day
+
+    GetPortfolioReturns = portReturns
+End Function
+
+
+Function CalculateVaRFromReturns(portReturns As Variant, confidenceLevel As Double) As Double
+    Dim sorted() As Double
+    Dim i As Long, n As Long
+    n = UBound(portReturns)
+    ReDim sorted(1 To n)
+    For i = 1 To n
+        sorted(i) = portReturns(i)
+    Next i
+    QuickSort sorted, 1, n
+    Dim varIndex As Long
+    varIndex = Application.WorksheetFunction.RoundUp((1 - confidenceLevel) * n, 0)
+    CalculateVaRFromReturns = sorted(varIndex)
+End Function
+
+Function CalculateESFromReturns(portReturns As Variant, confidenceLevel As Double) As Double
+    Dim sorted() As Double
+    Dim i As Long, n As Long
+    n = UBound(portReturns)
+    ReDim sorted(1 To n)
+    For i = 1 To n
+        sorted(i) = portReturns(i)
+    Next i
+    QuickSort sorted, 1, n
+
+    Dim varIndex As Long
+    varIndex = Application.WorksheetFunction.RoundUp((1 - confidenceLevel) * n, 0)
+
+    Dim sumES As Double
+    For i = 1 To varIndex
+        sumES = sumES + sorted(i)
+    Next i
+
+    CalculateESFromReturns = sumES / varIndex
+End Function
+
+Function GetTotalExposure() As Double
+    Dim ws As Worksheet: Set ws = ThisWorkbook.Sheets("Portfolio")
+    Dim lastRow As Long: lastRow = ws.Cells(ws.Rows.Count, 1).End(xlUp).Row
+
+    Dim sumExp As Double: sumExp = 0
+    Dim i As Long
+    For i = 2 To lastRow
+        sumExp = sumExp + ws.Cells(i, 3).Value
+    Next i
+
+    GetTotalExposure = sumExp
+End Function
+
+
+mod_Data :
+
+Option Explicit
+
+Private Function SheetExists(Name As String) As Boolean
+    Dim ws As Worksheet
+    On Error Resume Next
+    Set ws = ThisWorkbook.Sheets(Name)
+    SheetExists = Not ws Is Nothing
+    On Error GoTo 0
+End Function
+
+Private Function PriceSheetName(stooqSymbol As String) As String
+    PriceSheetName = "PX_" & Replace(stooqSymbol, ".", "_")
+End Function
+
+Public Sub RefreshAllPrices()
+    ' Loops Symbols sheet and downloads CSV for each stooq symbol into its own PX_* sheet
+    Dim wsSym As Worksheet: Set wsSym = ThisWorkbook.Sheets("Symbols")
+    Dim lastRow As Long: lastRow = wsSym.Cells(wsSym.Rows.Count, 1).End(xlUp).Row
+    Dim r As Long, sym As String
+
+    For r = 2 To lastRow
+        sym = Trim(wsSym.Cells(r, 3).Value) ' C:StooqSymbol
+        If Len(sym) > 0 Then
+            DownloadStooqToSheet sym
+        End If
+    Next r
+
+    BuildMarketDataFromPX "spy.us"   ' use SPY calendar; change if you want another base
+    MsgBox "Prices refreshed and Market_Data rebuilt.", vbInformation
+End Sub
+
+Public Sub DownloadStooqToSheet(stooqSymbol As String)
+    ' Downloads CSV from stooq into a dedicated sheet PX_symbol
+    Dim url As String
+    url = "https://stooq.com/q/d/l/?s=" & LCase(stooqSymbol) & "&i=d"
+
+    Dim shName As String: shName = PriceSheetName(stooqSymbol)
+    Dim ws As Worksheet
+    If SheetExists(shName) Then
+        Set ws = ThisWorkbook.Sheets(shName)
+        ws.Cells.Clear
+    Else
+        Set ws = ThisWorkbook.Sheets.Add(After:=ThisWorkbook.Sheets(ThisWorkbook.Sheets.Count))
+        ws.Name = shName
+    End If
+
+    On Error GoTo FetchErr
+    With ws.QueryTables.Add(Connection:="URL;" & url, Destination:=ws.Range("A1"))
+        .BackgroundQuery = False
+        .RefreshStyle = xlOverwriteCells
+        .SaveData = False
+        .TextFileCommaDelimiter = True
+        .Refresh
+    End With
+    ' Expected columns: Date,Open,High,Low,Close,Volume
+    ws.Rows(1).Font.Bold = True
+    ws.Columns("A:F").AutoFit
+    Exit Sub
+
+FetchErr:
+    MsgBox "Failed to fetch: " & stooqSymbol & vbCrLf & "URL: " & url, vbExclamation
+End Sub
+
+Public Sub BuildMarketDataFromYahoo(baseTicker As String)
+    Dim wsMD As Worksheet, wsBase As Worksheet
+    Dim lastBase As Long, i As Long, r As Long, c As Long
+    Dim tickers As Variant: tickers = Array("AAPL", "NVDA", "GOOGL", "META", "MSFT", "SPY", "TLT", "GLD", "USO")
+    
+    ' Create or clear Market_Data
+    On Error Resume Next
+    Set wsMD = ThisWorkbook.Sheets("Market_Data")
+    On Error GoTo 0
+    If wsMD Is Nothing Then
+        Set wsMD = ThisWorkbook.Sheets.Add(Before:=ThisWorkbook.Sheets(1))
+        wsMD.Name = "Market_Data"
+    Else
+        wsMD.Cells.Clear
+    End If
+    
+    ' Use base ticker for dates
+    Set wsBase = ThisWorkbook.Sheets("PX_" & baseTicker)
+    lastBase = wsBase.Cells(wsBase.Rows.Count, 1).End(xlUp).Row
+    
+    wsMD.Cells(1, 1).Value = "Date"
+    wsMD.Range("A2:A" & lastBase).Value = wsBase.Range("A2:A" & lastBase).Value
+    
+    ' Fill returns for each ticker
+    c = 2
+    For i = LBound(tickers) To UBound(tickers)
+        Dim sh As Worksheet
+        On Error Resume Next
+        Set sh = ThisWorkbook.Sheets("PX_" & tickers(i))
+        On Error GoTo 0
+        
+        If Not sh Is Nothing Then
+            wsMD.Cells(1, c).Value = tickers(i)
+            For r = 3 To lastBase
+                Dim pxToday As Double, pxYesterday As Double
+                pxToday = sh.Cells(r, 6).Value ' Adj Close
+                pxYesterday = sh.Cells(r - 1, 6).Value
+                If IsNumeric(pxToday) And IsNumeric(pxYesterday) And pxYesterday <> 0 Then
+                    wsMD.Cells(r, c).Value = pxToday / pxYesterday - 1
+                Else
+                    wsMD.Cells(r, c).Value = ""
+                End If
+            Next r
+            c = c + 1
+        End If
+    Next i
+    
+    wsMD.Columns.AutoFit
+End Sub
+
+
+mod_IO :
+
+Option Explicit
+
+' Renvoie True si la cellule contient un nombre exploitable, met la valeur dans outVal
+Public Function SafeDouble(c As Range, ByRef outVal As Double) As Boolean
+    On Error GoTo EH
+    If c Is Nothing Then GoTo EH
+    If IsError(c.Value) Then GoTo EH
+    If Len(c.Value) = 0 Then GoTo EH
+    If Not IsNumeric(c.Value) Then GoTo EH
+    outVal = CDbl(c.Value)
+    SafeDouble = True
+    Exit Function
+EH:
+    SafeDouble = False
+End Function
+
+
+
+Option Explicit
+
+' --- Return Asset Type (col E) for a ticker (col A contains long name)
+Public Function GetAssetType(ticker As String) As String
+    Dim ws As Worksheet, r As Range
+    Set ws = ThisWorkbook.Sheets("Market_Data")
+    
+    Set r = ws.Columns(1).Find(What:=ticker, LookAt:=xlPart, MatchCase:=False)
+    If Not r Is Nothing Then
+        GetAssetType = CStr(ws.Cells(r.Row, "E").Value)
+    Else
+        GetAssetType = "Unknown"
+    End If
+End Function
+
+' --- Return Beta (col C) for a ticker (col A contains long name)
+Public Function GetBeta(ticker As String) As Double
+    Dim ws As Worksheet, r As Range, v As Variant
+    Set ws = ThisWorkbook.Sheets("Market_Data")
+    
+    Set r = ws.Columns(1).Find(What:=ticker, LookAt:=xlPart, MatchCase:=False)
+    If Not r Is Nothing Then
+        v = ws.Cells(r.Row, "C").Value   ' C = Beta
+        If IsNumeric(v) Then
+            GetBeta = CDbl(v)
+        Else
+            GetBeta = 0
+        End If
+    Else
+        GetBeta = 0
+    End If
+End Function
+
+
+' Extracts the ticker from a long Stocks name like "MICROSOFT CORPORATION (XNAS:MSFT)"
+Public Function ExtractTicker(ByVal s As String) As String
+    Dim pL As Long, pR As Long, core As String, pColon As Long
+    s = Trim$(s)
+    pL = InStrRev(s, "(")
+    pR = InStrRev(s, ")")
+    If pL > 0 And pR > pL Then
+        core = Mid$(s, pL + 1, pR - pL - 1)   ' e.g. "XNAS:MSFT"
+        pColon = InStrRev(core, ":")
+        If pColon > 0 Then
+            ExtractTicker = UCase$(Mid$(core, pColon + 1))
+        Else
+            ExtractTicker = UCase$(core)
+        End If
+    Else
+        ExtractTicker = UCase$(s)            ' fallback if no "(EXCH:TICKER)"
+    End If
+End Function
+
+
+mod_Main :
+
+Option Explicit
+
+' ------------------------
+' Open Scenario UserForm
+' ------------------------
+Sub OpenScenarioForm()
+    frmScenario.Show
+End Sub
+
+Sub ShowScenarioForm()
+    frmScenario.Show
+End Sub
+
+
+
+' ------------------------
+' Run Stress Test
+' ------------------------
+Sub RunStressTest()
+    Dim wsPortfolio As Worksheet, wsScenarios As Worksheet, wsOutput As Worksheet
+    Dim lastRowPortfolio As Long, lastRowScenarios As Long, outputRow As Long
+    Dim i As Long, j As Long
+    Dim assetName As String, assetType As String
+    Dim exposure As Double, beta As Double
+    Dim shockType As String, shockValue As Double, shockUnit As String
+    Dim pnlImpact As Double
+    Dim totalPnL As Double, totalExposure As Double
+
+    Set wsPortfolio = ThisWorkbook.Sheets("Portfolio")
+    Set wsScenarios = ThisWorkbook.Sheets("Scenarios")
+    Set wsOutput = ThisWorkbook.Sheets("VaR_ES_Output")
+
+    ' Clear and set headers
+    wsOutput.Cells.ClearContents
+    wsOutput.Range("A1:E1").Value = Array("Asset", "Asset Type", "Shock Applied", "PnL Impact ($)", "PnL Impact (%)")
+    outputRow = 2
+
+    lastRowPortfolio = wsPortfolio.Cells(wsPortfolio.Rows.Count, 1).End(xlUp).Row
+    lastRowScenarios = wsScenarios.Cells(wsScenarios.Rows.Count, 1).End(xlUp).Row
+
+    totalPnL = 0
+    totalExposure = 0
+
+    ' Loop through portfolio
+    For i = 2 To lastRowPortfolio
+        assetName = wsPortfolio.Cells(i, 1).Value
+        assetType = Trim$(LCase$(wsPortfolio.Cells(i, 2).Value))
+        exposure = wsPortfolio.Cells(i, 3).Value
+        beta = wsPortfolio.Cells(i, 4).Value
+
+        ' Loop through scenarios
+        For j = 2 To lastRowScenarios
+            shockType = Trim$(LCase$(wsScenarios.Cells(j, 2).Value)) ' Asset class
+            shockValue = wsScenarios.Cells(j, 3).Value               ' Shock (%)
+
+
+            If assetType = shockType Then
+                ' PnL = Exposure * Shock%
+                pnlImpact = exposure * (shockValue / 100#)
+
+                ' Write results
+                wsOutput.Cells(outputRow, 1).Value = assetName
+                wsOutput.Cells(outputRow, 2).Value = wsPortfolio.Cells(i, 2).Value
+                wsOutput.Cells(outputRow, 3).Value = CStr(shockValue)
+                wsOutput.Cells(outputRow, 4).Value = Round(pnlImpact, 2)
+
+                If exposure <> 0 Then
+                    wsOutput.Cells(outputRow, 5).Value = Round(pnlImpact / exposure * 100#, 2)
+                    wsOutput.Cells(outputRow, 5).NumberFormat = "0.00\%"
+                Else
+                    wsOutput.Cells(outputRow, 5).Value = "N/A"
+                End If
+
+                totalPnL = totalPnL + pnlImpact
+                totalExposure = totalExposure + exposure
+                outputRow = outputRow + 1
+            End If
+        Next j
+    Next i
+
+    ' Totals row
+    wsOutput.Cells(outputRow, 1).Value = "Total Portfolio"
+    wsOutput.Cells(outputRow, 4).Value = Round(totalPnL, 2)
+    If totalExposure <> 0 Then
+        wsOutput.Cells(outputRow, 5).Value = Round(totalPnL / totalExposure * 100#, 2)
+        wsOutput.Cells(outputRow, 5).NumberFormat = "0.00\%"
+    Else
+        wsOutput.Cells(outputRow, 5).Value = "N/A"
+    End If
+    wsOutput.Rows(outputRow).Font.Bold = True
+
+    ' Formatting
+    With wsOutput
+        .Range("A1:E1").Font.Bold = True
+        .Range("A1:E1").HorizontalAlignment = xlCenter
+        .Columns("A:E").AutoFit
+        .Range("D2:D" & outputRow).NumberFormat = "#,##0.00 [$-407]"
+        .Range("E2:E" & outputRow).NumberFormat = "0.00\%"
+    End With
+
+    MsgBox "Stress test complete! Check VaR_ES_Output sheet.", vbInformation
+End Sub
+
+Sub ComputeVaR_ES()
+    Dim wsPortfolio As Worksheet, wsReturns As Worksheet, wsOut As Worksheet
+    Dim lastRowPortfolio As Long, lastColReturns As Long, outputRow As Long
+    Dim i As Long, j As Long, r As Long
+    Dim exposure As Double
+    Dim var95 As Double, es95 As Double
+    Dim dailyReturns() As Double, sortedReturns() As Double
+    Dim percentileIndex As Long, esSum As Double
+    Dim startRow As Long, endRow As Long
+    Dim portTicker As String, colTicker As String
+    Dim retCol As Long
+    Dim hdrVal As Variant, hdrText As String
+
+    Set wsPortfolio = ThisWorkbook.Sheets("Portfolio")
+    Set wsReturns = ThisWorkbook.Sheets("Market_Returns")
+
+    On Error Resume Next
+    Set wsOut = ThisWorkbook.Sheets("Risk_Results")
+    If wsOut Is Nothing Then
+        Set wsOut = ThisWorkbook.Sheets.Add
+        wsOut.Name = "Risk_Results"
+    End If
+    On Error GoTo 0
+    wsOut.Cells.ClearContents
+
+    lastRowPortfolio = wsPortfolio.Cells(wsPortfolio.Rows.Count, 1).End(xlUp).Row
+    lastColReturns = wsReturns.Cells(1, wsReturns.Columns.Count).End(xlToLeft).Column
+
+    startRow = 3
+    endRow = wsReturns.Cells(wsReturns.Rows.Count, 1).End(xlUp).Row
+
+    wsOut.Range("A1:D1").Value = Array("Asset", "Asset Type", "VaR (95%) Û", "Expected Shortfall (95%) Û")
+    outputRow = 2
+
+    For i = 2 To lastRowPortfolio
+        portTicker = ExtractTicker(CStr(wsPortfolio.Cells(i, 1).Value))
+        exposure = wsPortfolio.Cells(i, 3).Value
+        retCol = 0
+
+        For j = 2 To lastColReturns Step 2
+            hdrVal = wsReturns.Cells(1, j - 1).Value
+            If Not IsError(hdrVal) Then
+                hdrText = Trim$(CStr(hdrVal))
+                If Len(hdrText) > 0 Then
+                    colTicker = ExtractTicker(hdrText)
+                    If UCase$(colTicker) = UCase$(portTicker) Then
+                        retCol = j
+                        Exit For
+                    End If
+                End If
+            End If
+        Next j
+
+        If retCol = 0 Then
+            wsOut.Cells(outputRow, 1).Value = wsPortfolio.Cells(i, 1).Value
+            wsOut.Cells(outputRow, 2).Value = wsPortfolio.Cells(i, 2).Value
+            wsOut.Cells(outputRow, 3).Value = "No data"
+            wsOut.Cells(outputRow, 4).Value = "No data"
+            outputRow = outputRow + 1
+            GoTo NextAsset
+        End If
+
+        ' Collect returns
+        ReDim dailyReturns(1 To endRow - startRow + 1)
+        Dim validCount As Long: validCount = 0
+
+        For r = startRow To endRow
+            If Not IsError(wsReturns.Cells(r, retCol).Value) Then
+                If IsNumeric(wsReturns.Cells(r, retCol).Value) Then
+                    If wsReturns.Cells(r, retCol).Value <> 0 Then
+                        validCount = validCount + 1
+                        dailyReturns(validCount) = wsReturns.Cells(r, retCol).Value
+                    End If
+                End If
+            End If
+        Next r
+
+        If validCount < 3 Then
+            wsOut.Cells(outputRow, 1).Value = wsPortfolio.Cells(i, 1).Value
+            wsOut.Cells(outputRow, 2).Value = wsPortfolio.Cells(i, 2).Value
+            wsOut.Cells(outputRow, 3).Value = "Insufficient data"
+            wsOut.Cells(outputRow, 4).Value = "Insufficient data"
+            outputRow = outputRow + 1
+            GoTo NextAsset
+        End If
+
+        ReDim Preserve dailyReturns(1 To validCount)
+        sortedReturns = dailyReturns
+        Call BubbleSort(sortedReturns)
+
+        percentileIndex = Application.Max(1, WorksheetFunction.RoundDown(0.05 * validCount, 0))
+        var95 = sortedReturns(percentileIndex) * exposure
+
+        esSum = 0
+        For r = 1 To percentileIndex
+            esSum = esSum + sortedReturns(r)
+        Next r
+        es95 = (esSum / percentileIndex) * exposure
+
+        wsOut.Cells(outputRow, 1).Value = wsPortfolio.Cells(i, 1).Value
+        wsOut.Cells(outputRow, 2).Value = wsPortfolio.Cells(i, 2).Value
+        wsOut.Cells(outputRow, 3).Value = Round(var95, 2)
+        wsOut.Cells(outputRow, 4).Value = Round(es95, 2)
+        outputRow = outputRow + 1
+
+NextAsset:
+    Next i
+
+    With wsOut
+        .Range("A1:D1").Font.Bold = True
+        .Columns("A:D").AutoFit
+    End With
+
+    MsgBox "VaR & ES written to Risk_Results.", vbInformation
+End Sub
+
+
+' ------------------------
+' Utilities
+' ------------------------
+Sub BubbleSort(arr() As Double)
+    Dim i As Long, j As Long, temp As Double
+    For i = LBound(arr) To UBound(arr) - 1
+        For j = i + 1 To UBound(arr)
+            If arr(j) < arr(i) Then
+                temp = arr(i)
+                arr(i) = arr(j)
+                arr(j) = temp
+            End If
+        Next j
+    Next i
+End Sub
+
+' Extracts ticker (e.g., "MSFT") from "MICROSOFT CORPORATION (XNAS:MSFT)"
+Private Function ExtractTicker(ByVal s As String) As String
+    Dim pL As Long, pR As Long, core As String, pColon As Long
+    s = Trim$(s)
+    pL = InStrRev(s, "(")
+    pR = InStrRev(s, ")")
+    If pL > 0 And pR > pL Then
+        core = Mid$(s, pL + 1, pR - pL - 1)
+        pColon = InStrRev(core, ":")
+        If pColon > 0 Then
+            ExtractTicker = UCase$(Mid$(core, pColon + 1))
+        Else
+            ExtractTicker = UCase$(core)
+        End If
+    Else
+        ExtractTicker = UCase$(s)
+    End If
+End Function
+
+' ------------------------
+' Open AddPortfolio UserForm
+' ------------------------
+Public Sub OpenAddPortfolioForm()
+    Dim f As frmAddPortfolio
+    Set f = New frmAddPortfolio
+    f.Show
+End Sub
+
+Sub StyleMarketReturnsSheet()
+    Dim ws As Worksheet: Set ws = ThisWorkbook.Sheets("Market_Returns")
+    Dim lastCol As Long: lastCol = ws.Cells(2, ws.Columns.Count).End(xlToLeft).Column
+    Dim lastRow As Long: lastRow = ws.Cells(ws.Rows.Count, 1).End(xlUp).Row
+    Dim j As Long
+
+    For j = 1 To lastCol
+        If UCase(Trim(ws.Cells(2, j).Value)) = "RETURN" Then
+            With ws.Range(ws.Cells(3, j), ws.Cells(lastRow, j))
+                .FormatConditions.Delete
+                With .FormatConditions.AddColorScale(ColorScaleType:=3)
+                    With .ColorScaleCriteria(1)
+                        .Type = xlConditionValueNumber
+                        .Value = -0.05
+                        .FormatColor.Color = RGB(255, 0, 0)
+                    End With
+                    With .ColorScaleCriteria(2)
+                        .Type = xlConditionValueNumber
+                        .Value = 0
+                        .FormatColor.Color = RGB(255, 255, 255)
+                    End With
+                    With .ColorScaleCriteria(3)
+                        .Type = xlConditionValueNumber
+                        .Value = 0.05
+                        .FormatColor.Color = RGB(0, 176, 80)
+                    End With
+                End With
+            End With
+        End If
+    Next j
+
+    MsgBox "Market_Returns sheet styled with red/green return heatmap!", vbInformation
+End Sub
+
+Sub ShowAddScenarioForm()
+    frmAddScenario.Show
+End Sub
+
+
+mod_Simulation :
+
+Sub GenerateMockReturnData()
+    Dim ws As Worksheet
+    Set ws = ThisWorkbook.Sheets("Market_Data")
+    ws.Cells.ClearContents
+
+    ' Header
+    ws.Range("A1:E1").Value = Array("Date", "Equity", "Oil", "Rates", "Commodities")
+
+    Dim i As Long
+    Dim startDate As Date
+    startDate = Date - 100
+
+    For i = 1 To 100
+        ws.Cells(i + 1, 1).Value = startDate + i
+        ws.Cells(i + 1, 2).Value = WorksheetFunction.RandBetween(-30, 30) / 10000 ' Equity
+        ws.Cells(i + 1, 3).Value = WorksheetFunction.RandBetween(-50, 50) / 10000 ' Oil
+        ws.Cells(i + 1, 4).Value = WorksheetFunction.RandBetween(-10, 10) / 10000 ' Rates
+        ws.Cells(i + 1, 5).Value = WorksheetFunction.RandBetween(-20, 20) / 10000 ' Commodities
+    Next i
+
+    MsgBox "Mock return data generated!"
+End Sub
+
+
+mod_Visualization :
+
+Sub FormatPnLColumn()
+    Dim ws As Worksheet
+    Dim lastRow As Long
+    Dim i As Long
+
+    Set ws = ThisWorkbook.Sheets("VaR_ES_Output")
+    lastRow = ws.Cells(ws.Rows.Count, "D").End(xlUp).Row
+
+    With ws
+        For i = 2 To lastRow
+            If IsNumeric(.Cells(i, 4).Value) Then
+                .Cells(i, 4).NumberFormat = "$#,##0.00"
+            End If
+        Next i
+    End With
+End Sub
+
+Sub FormatPnLPercent()
+    Dim ws As Worksheet
+    Dim lastRow As Long
+
+    Set ws = ThisWorkbook.Sheets("VaR_ES_Output")
+    lastRow = ws.Cells(ws.Rows.Count, "E").End(xlUp).Row
+
+    With ws.Range("E2:E" & lastRow)
+        .NumberFormat = "0.00%"
+    End With
+End Sub
+
+Sub ApplyPnLColors()
+    Dim ws As Worksheet
+    Dim lastRow As Long
+    Dim rng As Range
+
+    Set ws = ThisWorkbook.Sheets("VaR_ES_Output")
+    lastRow = ws.Cells(ws.Rows.Count, "D").End(xlUp).Row
+    Set rng = ws.Range("D2:D" & lastRow)
+
+    rng.FormatConditions.Delete
+
+    With rng.FormatConditions.AddColorScale(ColorScaleType:=3)
+        With .ColorScaleCriteria(1)
+            .Type = xlConditionValueLowestValue
+            .FormatColor.Color = RGB(255, 0, 0) ' Red
+        End With
+        With .ColorScaleCriteria(2)
+            .Type = xlConditionValuePercentile
+            .Value = 50
+            .FormatColor.Color = RGB(255, 255, 255) ' White
+        End With
+        With .ColorScaleCriteria(3)
+            .Type = xlConditionValueHighestValue
+            .FormatColor.Color = RGB(0, 176, 80) ' Green
+        End With
+    End With
+End Sub
+
+Sub StyleTotalRow()
+    Dim ws As Worksheet
+    Dim lastRow As Long
+
+    Set ws = ThisWorkbook.Sheets("VaR_ES_Output")
+    lastRow = ws.Cells(ws.Rows.Count, "A").End(xlUp).Row
+
+    With ws.Rows(lastRow)
+        .Font.Bold = True
+        .Interior.Color = RGB(230, 230, 230)
+    End With
+End Sub
+
+Sub CleanUpVaRSheet()
+    Call FormatPnLColumn
+    Call FormatPnLPercent
+    Call ApplyPnLColors
+    Call StyleTotalRow
+End Sub
+
+mod_Yahoo :
+
+Option Explicit
+
+'========================
+' Public entry points
+'========================
+
+' Download 1+ tickers and then rebuild Market_Data from PX_* sheets
+Public Sub RefreshAllYahoo()
+    Dim tickers As Variant, t As Variant
+    tickers = Array("AAPL", "NVDA", "GOOGL", "META", "MSFT", "SPY", "TLT", "GLD", "USO")
+
+    Dim ok As Boolean, msg As String
+
+    Application.ScreenUpdating = False
+
+    For Each t In tickers
+        ok = DownloadYahooToSheet(CStr(t), 2) ' last 2 years
+        If Not ok Then msg = msg & CStr(t) & " "
+    Next t
+
+    ' Rebuild Market_Data using SPY as base calendar
+    BuildMarketDataFromYahoo "SPY"
+
+    Application.ScreenUpdating = True
+
+    If Len(msg) > 0 Then
+        MsgBox "Some tickers failed: " & msg, vbExclamation
+    Else
+        MsgBox "Yahoo Finance data updated and Market_Data rebuilt.", vbInformation
+    End If
+End Sub
+
+' Build Market_Data sheet of returns from PX_* sheets (Adj Close)
+Public Sub BuildMarketDataFromYahoo(baseTicker As String)
+    Dim wsMD As Worksheet, wsBase As Worksheet
+    Dim lastBase As Long, i As Long, r As Long, c As Long
+    Dim tickers As Variant: tickers = Array("AAPL", "NVDA", "GOOGL", "META", "MSFT", "SPY", "TLT", "GLD", "USO")
+
+    On Error Resume Next
+    Set wsMD = ThisWorkbook.Sheets("Market_Data")
+    On Error GoTo 0
+    If wsMD Is Nothing Then
+        Set wsMD = ThisWorkbook.Sheets.Add(Before:=ThisWorkbook.Sheets(1))
+        wsMD.Name = "Market_Data"
+    Else
+        wsMD.Cells.Clear
+    End If
+
+    Dim baseShName As String: baseShName = "PX_" & baseTicker
+    If Not SheetExists(baseShName) Then
+        MsgBox "Base price sheet " & baseShName & " not found. Download data first.", vbExclamation
+        Exit Sub
+    End If
+
+    Set wsBase = ThisWorkbook.Sheets(baseShName)
+    lastBase = wsBase.Cells(wsBase.Rows.Count, 1).End(xlUp).Row
+    If lastBase < 3 Then
+        MsgBox "Not enough rows in " & baseShName, vbExclamation
+        Exit Sub
+    End If
+
+    ' A: Date
+    wsMD.Cells(1, 1).Value = "Date"
+    wsMD.Range("A2:A" & lastBase).Value = wsBase.Range("A2:A" & lastBase).Value
+
+    ' Fill returns for each ticker from PX_* Adj Close (column 6)
+    c = 2
+    For i = LBound(tickers) To UBound(tickers)
+        Dim sh As Worksheet
+        On Error Resume Next
+        Set sh = ThisWorkbook.Sheets("PX_" & tickers(i))
+        On Error GoTo 0
+
+        If Not sh Is Nothing Then
+            wsMD.Cells(1, c).Value = tickers(i)
+            Dim rBase As Long
+            For rBase = 3 To lastBase
+                Dim pxToday As Double, pxYesterday As Double
+                pxToday = sh.Cells(rBase, 6).Value   ' Adj Close
+                pxYesterday = sh.Cells(rBase - 1, 6).Value
+                If IsNumeric(pxToday) And IsNumeric(pxYesterday) And pxYesterday <> 0 Then
+                    wsMD.Cells(rBase, c).Value = pxToday / pxYesterday - 1
+                Else
+                    wsMD.Cells(rBase, c).Value = ""
+                End If
+            Next rBase
+            c = c + 1
+        End If
+    Next i
+
+    wsMD.Columns.AutoFit
+End Sub
+
+'========================
+' Core downloader
+'========================
+
+Public Sub DownloadYahooToSheet(ticker As String, Optional yearsBack As Long = 1)
+    Dim period1 As Long, period2 As Long
+    Dim url As String, shName As String
+    Dim ws As Worksheet, tmpWb As Workbook
+    
+    ' Time range
+    period2 = ToUnixTime(Date)
+    period1 = ToUnixTime(DateAdd("yyyy", -yearsBack, Date))
+    
+    url = "https://query1.finance.yahoo.com/v7/finance/download/" & ticker & _
+          "?period1=" & period1 & "&period2=" & period2 & _
+          "&interval=1d&events=history"
+    
+    shName = "PX_" & ticker
+    On Error Resume Next
+    Set ws = ThisWorkbook.Sheets(shName)
+    On Error GoTo 0
+    
+    If ws Is Nothing Then
+        Set ws = ThisWorkbook.Sheets.Add(After:=ThisWorkbook.Sheets(ThisWorkbook.Sheets.Count))
+        ws.Name = shName
+    Else
+        ws.Cells.Clear
+    End If
+    
+    ' Force screen alerts
+    Application.ScreenUpdating = False
+    Application.DisplayAlerts = False
+    
+    On Error GoTo FetchFailed
+    Debug.Print "Trying to open URL: " & url
+    Set tmpWb = Workbooks.Open(url)
+    tmpWb.Sheets(1).UsedRange.Copy ws.Range("A1")
+    tmpWb.Close SaveChanges:=False
+    
+    Application.ScreenUpdating = True
+    Application.DisplayAlerts = True
+    
+    ws.Columns.AutoFit
+    ws.Rows(1).Font.Bold = True
+    
+    MsgBox "Download complete for " & ticker, vbInformation
+    Exit Sub
+    
+FetchFailed:
+    Application.ScreenUpdating = True
+    Application.DisplayAlerts = True
+    MsgBox "?? Failed to fetch data for " & ticker & vbCrLf & "URL: " & url, vbExclamation
+End Sub
+
+'========================
+' Helpers
+'========================
+
+' Convert a VBA Date into Unix timestamp (seconds since 1970-01-01)
+Private Function ToUnixTime(d As Date) As Long
+    ToUnixTime = (d - #1/1/1970#) * 86400
+End Function
+
+' Basic GET with optional cookie
+Private Function HttpGet(url As String, Optional cookie As String, Optional ua As String) As String
+    On Error GoTo HttpErr
+    Dim xhr As Object
+    On Error Resume Next
+    Set xhr = CreateObject("MSXML2.XMLHTTP.6.0")
+    If xhr Is Nothing Then Set xhr = CreateObject("MSXML2.XMLHTTP")
+    On Error GoTo HttpErr
+    If xhr Is Nothing Then
+        HttpGet = ""
+        Exit Function
+    End If
+
+    xhr.Open "GET", url, False
+    If Len(ua) = 0 Then ua = "Mozilla/5.0 (Excel-VBA)"
+    xhr.setRequestHeader "User-Agent", ua
+    If Len(cookie) > 0 Then xhr.setRequestHeader "Cookie", cookie
+    xhr.setRequestHeader "Accept", "text/csv,*/*;q=0.8"
+    xhr.send
+
+    If xhr.Status = 200 Then
+        HttpGet = CStr(xhr.responseText)
+    Else
+        HttpGet = ""
+    End If
+    Exit Function
+
+HttpErr:
+    HttpGet = ""
+End Function
+
+' Check if content looks like Yahoo CSV
+Private Function LooksLikeCsv(ByVal s As String) As Boolean
+    LooksLikeCsv = (Len(s) > 0 And InStr(1, s, "Date,Open,High,Low,Close") > 0)
+End Function
+
+' Retrieve Yahoo cookie + crumb token
+Private Function GetYahooCrumbAndCookie(tkr As String, ByRef cookie As String, ByRef crumb As String) As Boolean
+    Dim urlHist As String
+    urlHist = "https://finance.yahoo.com/quote/" & tkr & "/history?p=" & tkr
+
+    Dim xhr As Object
+    On Error Resume Next
+    Set xhr = CreateObject("MSXML2.XMLHTTP.6.0")
+    If xhr Is Nothing Then Set xhr = CreateObject("MSXML2.XMLHTTP")
+    On Error GoTo 0
+    If xhr Is Nothing Then Exit Function
+
+    xhr.Open "GET", urlHist, False
+    xhr.setRequestHeader "User-Agent", "Mozilla/5.0 (Excel-VBA)"
+    xhr.send
+
+    If xhr.readyState <> 4 Then Exit Function
+
+    Dim headers As String
+    headers = xhr.getAllResponseHeaders
+    cookie = ExtractCookie(headers)
+
+    Dim xhr2 As Object
+    Set xhr2 = CreateObject("MSXML2.XMLHTTP")
+    xhr2.Open "GET", "https://query1.finance.yahoo.com/v1/test/getcrumb", False
+    xhr2.setRequestHeader "User-Agent", "Mozilla/5.0 (Excel-VBA)"
+    xhr2.setRequestHeader "Cookie", cookie
+    xhr2.send
+
+    If xhr2.Status = 200 Then
+        crumb = Trim$(xhr2.responseText)
+        GetYahooCrumbAndCookie = (Len(crumb) > 0)
+    Else
+        GetYahooCrumbAndCookie = False
+    End If
+End Function
+
+' Extract cookie from headers
+Private Function ExtractCookie(allHeaders As String) As String
+    Dim lines() As String, i As Long
+    lines = Split(allHeaders, vbCrLf)
+    For i = LBound(lines) To UBound(lines)
+        If LCase(Left$(lines(i), 10)) = "set-cookie" Then
+            Dim p As Long: p = InStr(1, lines(i), ":")
+            If p > 0 Then
+                Dim v As String: v = Mid$(lines(i), p + 1)
+                v = Trim$(v)
+                Dim sc As Long: sc = InStr(1, v, ";")
+                If sc > 0 Then v = Left$(v, sc - 1)
+                ExtractCookie = v
+                Exit Function
+            End If
+        End If
+    Next i
+End Function
+
+' Escape crumb for URLs
+Private Function UrlEscape(s As String) As String
+    Dim i As Long, ch As String, out As String
+    For i = 1 To Len(s)
+        ch = Mid$(s, i, 1)
+        Select Case ch
+            Case "0" To "9", "A" To "Z", "a" To "z"
+                out = out & ch
+            Case Else
+                out = out & "%" & Hex(Asc(ch))
+        End Select
+    Next i
+    UrlEscape = out
+End Function
+
+' Write CSV into PX_<ticker>
+Private Sub WriteCsvToPxSheet(ticker As String, csv As String)
+    Dim shName As String: shName = "PX_" & ticker
+    Dim ws As Worksheet
+
+    On Error Resume Next
+    Set ws = ThisWorkbook.Sheets(shName)
+    On Error GoTo 0
+    If ws Is Nothing Then
+        Set ws = ThisWorkbook.Sheets.Add(After:=ThisWorkbook.Sheets(ThisWorkbook.Sheets.Count))
+        ws.Name = shName
+    Else
+        ws.Cells.Clear
+    End If
+
+    Dim lines() As String, parts() As String
+    Dim r As Long, c As Long
+    lines = Split(Replace(csv, vbCrLf, vbLf), vbLf)
+
+    For r = 0 To UBound(lines)
+        If Len(lines(r)) > 0 Then
+            parts = Split(lines(r), ",")
+            For c = 0 To UBound(parts)
+                ws.Cells(r + 1, c + 1).Value = parts(c)
+            Next c
+        End If
+    Next r
+
+    ws.Columns.AutoFit
+    ws.Rows(1).Font.Bold = True
+End Sub
+
+' Utility: does sheet exist
+Private Function SheetExists(Name As String) As Boolean
+    Dim ws As Worksheet
+    On Error Resume Next
+    Set ws = ThisWorkbook.Sheets(Name)
+    SheetExists = Not ws Is Nothing
+    On Error GoTo 0
+End Function
+
+Public Sub TestAAPL()
+    DownloadYahooToSheet "AAPL", 1
+End Sub
+
+
+
