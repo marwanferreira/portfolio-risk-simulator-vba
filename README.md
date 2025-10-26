@@ -1,6 +1,6 @@
 # portfolio-risk-simulator-vba
 
-This project is a fully VBA-driven portfolio stress testing and risk analysis tool.
+This project is a fully VBA-driven portfolio stress testing and risk analysis tool
 
 ## Features
 - User-defined macroeconomic stress scenarios
