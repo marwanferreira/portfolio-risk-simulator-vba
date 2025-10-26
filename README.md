@@ -10,7 +10,7 @@ This project is a fully VBA-driven portfolio stress testing and risk analysis to
 - Excel-VBA only, no external libraries required
 
 ## Goal
-To showcase advanced financial modeling and macro development in Microsoft Excel using pure VBA.
+To showcase advanced financial modeling and macro development in Microsoft Excel using pure VBA
 
 ## Authors
 - Marwan Ferreira da Silva
